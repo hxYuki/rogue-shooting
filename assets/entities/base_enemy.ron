@@ -1,0 +1,83 @@
+(
+  resources: {},
+  entities: {
+    0: (
+      components: {
+        "bevy_sprite::sprite::Sprite": (
+          color: Rgba(
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+          ),
+          flip_x: false,
+          flip_y: false,
+          custom_size: None,
+          rect: Some((
+            min: (
+              x: 0.0,
+              y: 0.0,
+            ),
+            max: (
+              x: 32.0,
+              y: 32.0,
+            ),
+          )),
+          anchor: Center,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (
+            x: 0.0,
+            y: 100.0,
+            z: 0.0,
+          ),
+          rotation: (
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+          ),
+          scale: (
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+          ),
+        ),
+        "bevy_transform::components::global_transform::GlobalTransform": ((
+          matrix3: (
+            x_axis: (
+              x: 1.0,
+              y: 0.0,
+              z: 0.0,
+            ),
+            y_axis: (
+              x: 0.0,
+              y: 1.0,
+              z: 0.0,
+            ),
+            z_axis: (
+              x: 0.0,
+              y: 0.0,
+              z: 1.0,
+            ),
+          ),
+          translation: (
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+          ),
+        )),
+        "bevy_asset::handle::Handle<bevy_render::texture::image::Image>": Weak(Uuid(
+          uuid: "97128bb1-2588-480b-bdc6-87b4adbec477",
+        )),
+        "bevy_render::view::visibility::Visibility": Inherited,
+        "bevy_render::view::visibility::InheritedVisibility": (false),
+        "bevy_render::view::visibility::ViewVisibility": (false),
+        "bevy_xpbd_2d::components::layers::CollisionLayers": (
+          groups: 2,
+          masks: 5,
+        ),
+      },
+    ),
+  },
+)

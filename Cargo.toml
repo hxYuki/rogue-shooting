@@ -1,0 +1,24 @@
+[package]
+name = "rogue-shooting"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.12.0"
+bevy_xpbd_2d = "0.3.2"
+rand = "0.8.5"
+bevy_rand = { version = "0.4", features = ["rand_chacha", "wyrand"] }
+# space_editor = { git = "https://github.com/rewin123/space_editor.git", tag="v0.2.3" }
+
+dyn-clone = "1.0.16"
+bevy-inspector-egui = "0.21.0"
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
