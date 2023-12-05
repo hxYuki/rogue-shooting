@@ -11,13 +11,14 @@ use bevy::{
     utils::HashMap,
 };
 
+use bevy_cursor::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
 use bevy_rand::prelude::*;
 use bevy_xpbd_2d::prelude::*;
 use enemy_targeting::{AimTargetingType, MoveTargetingType};
 use rand::prelude::*;
 
+mod constants;
 mod enemy_targeting;
 mod forced_move;
 mod input_handling;
@@ -36,11 +37,13 @@ fn main() {
             PhysicsPlugins::default(),
             EntropyPlugin::<WyRand>::default(),
             WorldInspectorPlugin::new(),
+            CursorInfoPlugin,
         ))
         .insert_resource(Gravity(Vec2::ZERO))
         .register_type::<bullets::lane_shot::LaneShot>()
         .register_type::<bullets::explode_shot::ExplodeShot>()
         .register_type::<bullets::splash_shot::SplashShot>()
+        .register_type::<bullets::lazer_shot::LazerShot>()
         // register for Character entity components
         .register_type::<Player>()
         .register_type::<Enemy>()
@@ -84,6 +87,8 @@ fn main() {
                 bullets::explode_shot::explode_shot_bullet_initializer,
                 bullets::splash_shot::splash_shot_move_system,
                 bullets::splash_shot::splash_shot_bullet_initializer,
+                bullets::lazer_shot::lazer_shot_move_system,
+                bullets::lazer_shot::lazer_shot_bullet_initializer,
             ),
         )
         .add_systems(
@@ -103,7 +108,9 @@ fn main() {
             )
                 .before(life_dies_system),
         )
-        .insert_resource(Time::<Fixed>::from_hz(64.))
+        .insert_resource(Time::<Fixed>::from_hz(
+            constants::GAME_FIXED_TICK_PER_SECOND,
+        ))
         .add_systems(FixedUpdate, bullet_hit_system)
         .run();
 }
@@ -140,7 +147,7 @@ enum Layer {
     EnemyBullet,
 }
 
-fn spawn_player(mut commands: Commands, type_registry: Res<AppTypeRegistry>) {
+fn spawn_player(mut commands: Commands) {
     commands
         .spawn((
             SpriteBundle {
@@ -167,42 +174,59 @@ fn spawn_player(mut commands: Commands, type_registry: Res<AppTypeRegistry>) {
             cb.spawn((
                 Weapon {
                     accelerate: 1000.,
-                    loads: vec![
-                        (
-                            Bullet {
-                                life_time: 0.3,
-                                endurance: 1.,
-                                speed: 1000.,
-                                cooldown: 0.6,
-                                damage: 10.,
-                                hit_limit: 1,
-                            },
-                            Box::new(bullets::splash_shot::SplashShot {
-                                count: 1,
-                                angle: 0.3,
-                            }),
-                        ),
-                        (
-                            Bullet {
-                                life_time: 0.3,
-                                endurance: INFINITY,
-                                speed: 1000.,
-                                cooldown: 1.,
-                                damage: 80.,
-                                hit_limit: 1,
-                            },
-                            Box::new(bullets::explode_shot::ExplodeShot),
-                        ),
-                    ],
+                    loads: vec![(
+                        Bullet {
+                            life_time: 0.03,
+                            endurance: INFINITY,
+                            speed: 1000.,
+                            cooldown: 0.,
+                            damage: 10. / constants::GAME_FIXED_TICK_PER_SECOND as f32,
+                            hit_limit: INFINITY,
+                        },
+                        Box::new(bullets::lazer_shot::LazerShot {
+                            width: 4.,
+                            length: 900.,
+                        }),
+                    )],
                 },
+                // Weapon {
+                //     accelerate: 1000.,
+                //     loads: vec![
+                //         (
+                //             Bullet {
+                //                 life_time: 0.3,
+                //                 endurance: 1.,
+                //                 speed: 1000.,
+                //                 cooldown: 0.6,
+                //                 damage: 10.,
+                //                 hit_limit: 1,.
+                //             },
+                //             Box::new(bullets::splash_shot::SplashShot {
+                //                 count: 1,
+                //                 angle: 0.3,
+                //             }),
+                //         ),
+                //         (
+                //             Bullet {
+                //                 life_time: 0.3,
+                //                 endurance: INFINITY,
+                //                 speed: 1000.,
+                //                 cooldown: 1.,
+                //                 damage: 80.,
+                //                 hit_limit: 1,.
+                //             },
+                //             Box::new(bullets::explode_shot::ExplodeShot),
+                //         ),
+                //     ],
+                // },
                 Player,
             ));
         });
 
-    spawn_enemy(commands, type_registry);
+    spawn_enemy(commands);
 }
 
-fn spawn_enemy(mut commands: Commands, type_registry: Res<AppTypeRegistry>) {
+fn spawn_enemy(mut commands: Commands) {
     commands.spawn((
         SpriteBundle {
             sprite: Sprite {
@@ -262,7 +286,7 @@ struct Movable {
     speed: f32,
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Clone, Copy)]
 struct Aims(Vec2);
 
 #[derive(Component, Reflect)]
@@ -459,7 +483,7 @@ fn bullet_hit_system(
                             .and_modify(|c| *c += 1)
                             .or_insert(1);
 
-                        if count <= bullet.hit_limit {
+                        if count as f32 <= bullet.hit_limit {
                             writer.send(BulletHitEvent {
                                 bullet_entity,
                                 target: entity,
@@ -514,7 +538,6 @@ fn bullet_hit_endurance_system(
         if endurance.0 < 1. {
             if !entropy.gen_bool(endurance.0.into()) {
                 endurance.0 = -1.;
-            } else {
             }
         } else {
             endurance.0 -= 1.;
@@ -536,7 +559,6 @@ fn hit_damage_system(
 }
 
 pub(crate) mod bullets {
-    use std::marker::PhantomData;
 
     use bevy::{ecs::reflect::ReflectCommandExt, prelude::*, sprite::MaterialMesh2dBundle};
     use dyn_clone::DynClone;
@@ -547,7 +569,7 @@ pub(crate) mod bullets {
     pub(crate) struct Bullet {
         pub life_time: f32,
         pub endurance: f32,
-        pub hit_limit: usize,
+        pub hit_limit: f32,
         pub speed: f32,
         pub cooldown: f32,
         pub damage: f32,
@@ -562,6 +584,8 @@ pub(crate) mod bullets {
         pub bullet_type: Box<dyn BulletType>,
         pub generation: usize,
     }
+    #[derive(Component)]
+    pub(crate) struct Shooter(Entity);
     #[derive(Component)]
     pub(crate) struct InitPosition(Transform);
 
@@ -593,6 +617,7 @@ pub(crate) mod bullets {
             for _ in 0..repeats {
                 let mut bullet_ec = commands.spawn((
                     InitPosition(event.shooter),
+                    Shooter(event.by),
                     WeaponRef(event.with),
                     BulletGeneration(event.generation + 1),
                     event.bullet,
@@ -756,20 +781,21 @@ pub(crate) mod bullets {
             mut materials: ResMut<Assets<ColorMaterial>>,
         ) {
             query.for_each(|(entity, bullet, InitPosition(transform))| {
-                commands.entity(entity).insert((
-                    MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(3.).into()).into(),
-                        material: materials.add(ColorMaterial::from(Color::ALICE_BLUE)),
-                        transform: *transform,
-                        ..default()
-                    },
-                    LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
-                    BulletEndurance(bullet.endurance),
-                    Collider::ball(3.),
-                    RigidBody::Dynamic,
-                ));
-
-                commands.entity(entity).remove::<InitPosition>();
+                commands
+                    .entity(entity)
+                    .insert((
+                        MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(3.).into()).into(),
+                            material: materials.add(ColorMaterial::from(Color::ALICE_BLUE)),
+                            transform: *transform,
+                            ..default()
+                        },
+                        LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
+                        BulletEndurance(bullet.endurance),
+                        Collider::ball(3.),
+                        RigidBody::Dynamic,
+                    ))
+                    .remove::<InitPosition>();
             });
         }
     }
@@ -807,20 +833,21 @@ pub(crate) mod bullets {
             mut materials: ResMut<Assets<ColorMaterial>>,
         ) {
             query.for_each(|(entity, bullet, InitPosition(transform))| {
-                commands.entity(entity).insert((
-                    MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                        material: materials.add(ColorMaterial::from(Color::CRIMSON)),
-                        transform: *transform,
-                        ..default()
-                    },
-                    LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
-                    BulletEndurance(bullet.endurance),
-                    Collider::ball(50.),
-                    // RigidBody::Dynamic,
-                ));
-
-                commands.entity(entity).remove::<InitPosition>();
+                commands
+                    .entity(entity)
+                    .insert((
+                        MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(50.).into()).into(),
+                            material: materials.add(ColorMaterial::from(Color::CRIMSON)),
+                            transform: *transform,
+                            ..default()
+                        },
+                        LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
+                        BulletEndurance(bullet.endurance),
+                        Collider::ball(50.),
+                        // RigidBody::Dynamic,
+                    ))
+                    .remove::<InitPosition>();
             });
         }
     }
@@ -866,21 +893,91 @@ pub(crate) mod bullets {
             mut materials: ResMut<Assets<ColorMaterial>>,
         ) {
             query.for_each(|(entity, bullet, InitPosition(transform), _)| {
-                commands.entity(entity).insert((
-                    MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(3.).into()).into(),
-                        material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
-                        transform: *transform,
-                        ..default()
-                    },
-                    LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
-                    BulletEndurance(bullet.endurance),
-                    Collider::ball(3.),
-                    RigidBody::Dynamic,
-                ));
-
-                commands.entity(entity).remove::<InitPosition>();
+                commands
+                    .entity(entity)
+                    .insert((
+                        MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(3.).into()).into(),
+                            material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
+                            transform: *transform,
+                            ..default()
+                        },
+                        LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
+                        BulletEndurance(bullet.endurance),
+                        Collider::ball(3.),
+                        RigidBody::Dynamic,
+                    ))
+                    .remove::<InitPosition>();
             });
+        }
+    }
+
+    pub mod lazer_shot {
+        use bevy::sprite::Anchor;
+
+        use super::*;
+        #[derive(Component, Reflect, Default, Clone, Copy)]
+        #[reflect(Component)]
+        pub(crate) struct LazerShot {
+            pub length: f32,
+            pub width: f32,
+        }
+        impl BulletType for LazerShot {}
+        pub(crate) fn lazer_shot_move_system(
+            mut commands: Commands,
+            mut query: Query<
+                (Entity, &mut Bullet, &mut Transform, &Shooter),
+                (With<LazerShot>, Without<Aims>, Without<InitPosition>),
+            >,
+            shooters: Query<(Entity, &Aims)>,
+        ) {
+            query.for_each_mut(|(entity, bullet, transform, Shooter(shooter_entity))| {
+                let aims = shooters.get(*shooter_entity).unwrap().1;
+                commands.entity(entity).insert(*aims);
+            });
+        }
+        pub(crate) fn lazer_shot_bullet_initializer(
+            mut commands: Commands,
+            query: Query<(Entity, &Bullet, &InitPosition, &Shooter, &LazerShot)>,
+            spawned_bullet: Query<(Entity, &Shooter), (With<LazerShot>, Without<InitPosition>)>,
+        ) {
+            query.for_each(
+                |(
+                    entity,
+                    bullet,
+                    InitPosition(transform),
+                    Shooter(shooter_entity),
+                    LazerShot { length, width },
+                )| {
+                    if spawned_bullet
+                        .iter()
+                        .any(|(_, Shooter(existed_shooter))| existed_shooter == shooter_entity)
+                    {
+                        // if there exists a lazer shoot by same shooter, won't spawn new lazer
+                        commands.entity(entity).despawn();
+                    } else {
+                        commands
+                            .entity(entity)
+                            .insert((
+                                SpriteBundle {
+                                    sprite: Sprite {
+                                        color: Color::LIME_GREEN,
+                                        custom_size: Some(Vec2::new(*width, *length)),
+                                        anchor: Anchor::BottomCenter,
+                                        ..default()
+                                    },
+                                    transform: *transform,
+                                    ..default()
+                                },
+                                LifeTime(Timer::from_seconds(bullet.life_time, TimerMode::Once)),
+                                BulletEndurance(bullet.endurance),
+                                Collider::cuboid(*width, *length),
+                                RigidBody::Dynamic,
+                            ))
+                            .remove::<InitPosition>();
+                    }
+                },
+            );
         }
     }
 }

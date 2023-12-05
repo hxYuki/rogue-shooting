@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_cursor::CursorInfo;
 
 use crate::Weapon;
 
@@ -69,20 +70,16 @@ use super::Aims;
 
 pub(crate) fn handle_mouse(
     mut commands: Commands,
-    mut cursor_motion: EventReader<CursorMoved>,
+    cursor: Res<CursorInfo>,
     mouse_click: Res<Input<MouseButton>>,
     player: Query<Entity, (With<Player>, With<KeyboardControlled>)>,
     weapons: Query<(Entity, &Weapon), With<Player>>,
-    camera: Query<(&Camera, &GlobalTransform)>,
 ) {
     if let Some(player) = player.iter().next() {
-        for e in cursor_motion.read() {
-            let (camera, camera_transform) = camera.single();
-            let Some(target) = camera.viewport_to_world_2d(camera_transform, e.position) else {
-                return;
-            };
-            commands.entity(player).insert(Aims(target));
-        }
+        let Some(target) = cursor.position() else {
+            return;
+        };
+        commands.entity(player).insert(Aims(target));
 
         if mouse_click.just_pressed(MouseButton::Left) {
             weapons.iter().for_each(|(e, _)| {
@@ -98,3 +95,4 @@ pub(crate) fn handle_mouse(
         }
     }
 }
+
