@@ -52,7 +52,7 @@ fn main() {
         .register_type::<Enemy>()
         .register_type::<Character>()
         .register_type::<Life>()
-        .register_type::<Movable>()
+        .register_type::<movements::Movable>()
         .register_type::<Bullet>()
         .add_event::<bullets::BulletSpawnEvent>()
         .add_event::<bullets::BulletSucceedEvent>()
@@ -65,7 +65,7 @@ fn main() {
                 input_handling::handle_input,
                 input_handling::handle_mouse,
                 life_dies_system,
-                move_system.before(bullet_before_despawn),
+                movements::move_system.before(bullet_before_despawn),
                 aim_system,
                 player_enemy_shock_system,
                 forced_move::forced_move_system,
@@ -170,7 +170,7 @@ fn spawn_player(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy
                 ..Default::default()
             },
             Life(100),
-            Movable { speed: 300.0 },
+            movements::Movable { speed: 300.0 },
             Player,
             Character,
             KeyboardControlled,
@@ -275,234 +275,9 @@ fn spawn_level(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy<
     // ));
 }
 
-mod enemies {
-    use bevy::ecs::query::With;
+mod enemies;
 
-    use crate::*;
-
-    pub trait EnemyType: Component {
-        const TEXT: &'static str;
-
-        fn to_component(self) -> impl Component;
-    }
-
-    pub fn type_dispatch(str: &str) -> impl EnemyType {
-        match str {
-            normal_enemy::NormalEnemy::TEXT => normal_enemy::NormalEnemy,
-            _ => panic!("unknown enemy type"),
-        }
-    }
-
-    pub mod normal_enemy {
-        use super::*;
-
-        #[derive(Component)]
-        pub struct NormalEnemy;
-
-        impl EnemyType for NormalEnemy {
-            const TEXT: &'static str = "normal";
-            fn to_component(self) -> impl Component {
-                self
-            }
-        }
-
-        pub fn normal_enemy_initializer(
-            mut commands: Commands,
-            to_initialize: Query<(Entity, &InitPosition), (With<Character>, With<NormalEnemy>)>,
-        ) {
-            to_initialize.for_each(|(entity, initial_pos)| {
-                commands
-                    .entity(entity)
-                    .insert((
-                        SpriteBundle {
-                            sprite: Sprite {
-                                color: Color::ORANGE_RED,
-                                rect: Some(Rect {
-                                    min: Vec2::new(0.0, 0.0),
-                                    max: Vec2::new(32.0, 32.0),
-                                }),
-                                ..Default::default()
-                            },
-                            transform: initial_pos.0,
-                            ..Default::default()
-                        },
-                        Life(100),
-                        Aims(Vec2::ZERO),
-                        Movable { speed: 150.0 },
-                        Collider::ball(16.),
-                        // Sensor,
-                        CollisionLayers::new([Layer::Enemy], [Layer::Player, Layer::PlayerBullet]),
-                        AimTargetingType::AimCurrent,
-                        MoveTargetingType::Chase,
-                    ))
-                    .remove::<InitPosition>();
-            });
-        }
-    }
-}
-
-mod levels {
-    use super::*;
-    use bevy::prelude::*;
-    use enemies::EnemyType;
-    use std::{
-        hash::{Hash, Hasher},
-        time::Duration,
-    };
-
-    #[derive(Component)]
-    pub struct LevelInfo {
-        pub id: i32,
-        pub is_spawning: bool,
-        pub enemy_to_spawn: Vec<EnemyDescriptor>,
-        pub wave_enemy_limit: usize,
-    }
-
-    #[derive(Component)]
-    pub struct CurrentWave(usize);
-
-    #[derive(Component)]
-    pub struct NextSpawnTimer(pub Timer);
-
-    #[derive(Component)]
-    pub struct SpawnedCounter(HashMap<EnemyDescriptor, u32>);
-
-    #[derive(PartialEq)]
-    pub enum EnemyClass {
-        /// Normal enemies will be spawned with pace according to existing enemies
-        /// the parameter implies its strength
-        Normal(u32),
-        /// Bosses in level will be spawned together at the end
-        Boss,
-    }
-    #[derive(Component)]
-    pub struct BossClass;
-    #[derive(Component)]
-    pub struct NormalClass(u32);
-
-    pub struct EnemyDescriptor {
-        pub enemy: String,
-        pub class: EnemyClass,
-        pub amount: u32,
-    }
-    impl Hash for EnemyDescriptor {
-        fn hash<H: Hasher>(&self, state: &mut H) {
-            self.enemy.hash(state);
-        }
-    }
-    #[derive(Component)]
-    pub struct LevelRef(Entity);
-
-    const LEVEL_TIME_BASE: f32 = 60.;
-    pub fn level_enemy_spawner(
-        mut commands: Commands,
-        mut levels: Query<(
-            Entity,
-            &mut LevelInfo,
-            &mut NextSpawnTimer,
-            &mut EntropyComponent<WyRand>,
-        )>,
-        level_enemies: Query<(&LevelRef), With<Enemy>>,
-        time: Res<Time>,
-    ) {
-        levels.for_each_mut(|(entity, mut level, mut spawn_timer, mut entropy)| {
-            // FIXME: remove this check, is_spawning shuould be a component
-            if !level.is_spawning {
-                return;
-            }
-            if spawn_timer.0.tick(time.delta()).just_finished() {
-                // let remains = counter.0.iter().map(|e| e.1).sum::<u32>() as i64;
-                let remains = level
-                    .enemy_to_spawn
-                    .iter()
-                    .filter(|e| e.class != EnemyClass::Boss)
-                    .map(|e| e.amount)
-                    .sum::<u32>() as i64;
-                if remains == 0 {
-                    return;
-                }
-
-                let mut next = entropy.gen_range(0..remains);
-                for desc in level.enemy_to_spawn.iter_mut() {
-                    next -= desc.amount as i64;
-                    if next < 0 {
-                        desc.amount -= 1;
-
-                        let EnemyClass::Normal(class) = desc.class else {
-                            unreachable!()
-                        };
-                        // TODO: scene range
-                        let rand_transform = Transform::from_xyz(
-                            entropy.gen_range(-300. ..=300.),
-                            entropy.gen_range(-300. ..=300.),
-                            0.,
-                        );
-
-                        commands.spawn((
-                            enemies::type_dispatch(&desc.enemy).to_component(),
-                            NormalClass(class),
-                            Enemy,
-                            Character,
-                            InitPosition(rand_transform),
-                            LevelRef(entity),
-                        ));
-                        break;
-                    }
-                }
-            }
-
-            let level_enemy_count = level_enemies
-                .iter()
-                .filter(|LevelRef(level_et)| *level_et == entity)
-                .count();
-            match level_enemy_count {
-                c if c < level.wave_enemy_limit => {
-                    if spawn_timer.0.duration() != Duration::from_secs_f32(0.6) {
-                        spawn_timer.0.reset();
-                        spawn_timer.0.set_duration(Duration::from_secs_f32(0.6));
-                    }
-                }
-                c if c >= level.wave_enemy_limit && c < 2 * level.wave_enemy_limit => {
-                    if spawn_timer.0.duration() != Duration::from_secs_f32(2.) {
-                        spawn_timer.0.reset();
-                        spawn_timer.0.set_duration(Duration::from_secs_f32(2.));
-                    }
-                }
-                _ => {
-                    if spawn_timer.0.duration() != Duration::from_secs_f32(6.) {
-                        spawn_timer.0.reset();
-                        spawn_timer.0.set_duration(Duration::from_secs_f32(6.));
-                    }
-                }
-            };
-        });
-    }
-
-    #[derive(Component)]
-    pub struct BossSpawnTimer(Timer);
-    pub fn level_boss_spawner(
-        mut commands: Commands,
-        mut levels: Query<(Entity, &mut LevelInfo, Option<&mut BossSpawnTimer>)>,
-        time: Res<Time>,
-    ) {
-        levels.for_each_mut(|(entity, mut level, boss_timer)| {
-            if let Some(mut boss_timer) = boss_timer {
-                if boss_timer.0.tick(time.delta()).just_finished() {
-                    // TODO: spawn all bosses
-                }
-            } else if level
-                .enemy_to_spawn
-                .iter()
-                .any(|e| e.class == EnemyClass::Boss)
-                && level.enemy_to_spawn.iter().map(|e| e.amount).sum::<u32>() == 0
-            {
-                commands
-                    .entity(entity)
-                    .insert(BossSpawnTimer(Timer::from_seconds(10., TimerMode::Once)));
-            }
-        });
-    }
-}
+mod levels;
 
 type WeaponEntropyComponent = EntropyComponent<WyRand>;
 fn randomize_weapons(
@@ -514,29 +289,6 @@ fn randomize_weapons(
         commands.entity(entity).insert(global.fork_rng());
     })
 }
-#[derive(Component)]
-enum XAxisMove {
-    Left,
-    Right,
-}
-#[derive(Component)]
-enum YAxisMove {
-    Up,
-    Down,
-}
-
-#[derive(Component)]
-enum Movement {
-    // XYAxisMove(Option<XAxisMove>, Option<YAxisMove>),
-    DirectionMove(Vec2),
-    PointMove(Vec2),
-}
-
-#[derive(Component, Reflect)]
-struct Movable {
-    speed: f32,
-}
-
 #[derive(Component, Reflect, Clone, Copy)]
 struct Aims(Vec2);
 
@@ -562,77 +314,106 @@ struct WeaponRef(Entity);
 #[derive(Component)]
 struct IsCoolingdown(Timer);
 
-fn move_system(
-    time: Res<Time>,
-    mut query: Query<
-        (
-            Entity,
-            &Movable,
-            &mut Transform,
-            Option<&Movement>,
-            Option<&XAxisMove>,
-            Option<&YAxisMove>,
-            Option<&mut LinearVelocity>,
-            Option<&RigidBody>,
-        ),
-        Without<forced_move::ForcedMove>,
-    >,
-    mut commands: Commands,
-) {
-    query.for_each_mut(
-        |(entity, movable, mut transform, movement, x, y, _, rigidbody)| {
-            if let Some(movement) = movement {
-                match movement {
-                    Movement::DirectionMove(dir) => {
-                        if rigidbody.is_none() {
-                            transform.translation +=
-                                dir.extend(0.0) * time.delta_seconds() * movable.speed;
-                        }
-                        commands
-                            .entity(entity)
-                            .insert(LinearVelocity(*dir * movable.speed));
-                    }
-                    Movement::PointMove(point) => {
-                        let dir = *point - transform.translation.truncate();
-                        if rigidbody.is_none() {
-                            transform.translation += dir
-                                .extend(0.0)
-                                .clamp_length_max(movable.speed * time.delta_seconds());
-                        }
+mod movements {
+    use crate::*;
 
-                        if dir.length() > movable.speed * time.delta_seconds() {
+    #[derive(Component)]
+    pub(crate) enum XAxisMove {
+        Left,
+        Right,
+    }
+
+    #[derive(Component)]
+    pub(crate) enum YAxisMove {
+        Up,
+        Down,
+    }
+
+    #[derive(Component)]
+    pub(crate) enum Movement {
+        // XYAxisMove(Option<XAxisMove>, Option<YAxisMove>),
+        DirectionMove(Vec2),
+        PointMove(Vec2),
+    }
+
+    #[derive(Component, Reflect)]
+    pub(crate) struct Movable {
+        pub(crate) speed: f32,
+    }
+
+    pub(crate) fn move_system(
+        time: Res<Time>,
+        mut query: Query<
+            (
+                Entity,
+                &Movable,
+                &mut Transform,
+                Option<&Movement>,
+                Option<&XAxisMove>,
+                Option<&YAxisMove>,
+                Option<&mut LinearVelocity>,
+                Option<&RigidBody>,
+            ),
+            Without<forced_move::ForcedMove>,
+        >,
+        mut commands: Commands,
+    ) {
+        query.for_each_mut(
+            |(entity, movable, mut transform, movement, x, y, _, rigidbody)| {
+                if let Some(movement) = movement {
+                    match movement {
+                        Movement::DirectionMove(dir) => {
+                            if rigidbody.is_none() {
+                                transform.translation +=
+                                    dir.extend(0.0) * time.delta_seconds() * movable.speed;
+                            }
                             commands
                                 .entity(entity)
-                                .insert(LinearVelocity(dir.normalize() * movable.speed));
-                        } else {
-                            commands.entity(entity).remove::<Movement>();
+                                .insert(LinearVelocity(*dir * movable.speed));
+                        }
+                        Movement::PointMove(point) => {
+                            let dir = *point - transform.translation.truncate();
+                            if rigidbody.is_none() {
+                                transform.translation += dir
+                                    .extend(0.0)
+                                    .clamp_length_max(movable.speed * time.delta_seconds());
+                            }
+
+                            if dir.length() > movable.speed * time.delta_seconds() {
+                                commands
+                                    .entity(entity)
+                                    .insert(LinearVelocity(dir.normalize() * movable.speed));
+                            } else {
+                                commands.entity(entity).remove::<Movement>();
+                            }
                         }
                     }
-                }
-            } else {
-                let mut direction = Vec2::ZERO;
-                if let Some(x) = x {
-                    match x {
-                        XAxisMove::Left => direction.x -= 1.0,
-                        XAxisMove::Right => direction.x += 1.0,
+                } else {
+                    let mut direction = Vec2::ZERO;
+                    if let Some(x) = x {
+                        match x {
+                            XAxisMove::Left => direction.x -= 1.0,
+                            XAxisMove::Right => direction.x += 1.0,
+                        }
                     }
-                }
-                if let Some(y) = y {
-                    match y {
-                        YAxisMove::Up => direction.y += 1.0,
-                        YAxisMove::Down => direction.y -= 1.0,
+                    if let Some(y) = y {
+                        match y {
+                            YAxisMove::Up => direction.y += 1.0,
+                            YAxisMove::Down => direction.y -= 1.0,
+                        }
                     }
-                }
-                if rigidbody.is_none() && direction != Vec2::ZERO {
-                    transform.translation +=
-                        (direction.normalize() * movable.speed * time.delta_seconds()).extend(0.0);
-                }
-                commands.entity(entity).insert(LinearVelocity(
-                    direction.normalize_or_zero() * movable.speed,
-                ));
-            };
-        },
-    );
+                    if rigidbody.is_none() && direction != Vec2::ZERO {
+                        transform.translation +=
+                            (direction.normalize() * movable.speed * time.delta_seconds())
+                                .extend(0.0);
+                    }
+                    commands.entity(entity).insert(LinearVelocity(
+                        direction.normalize_or_zero() * movable.speed,
+                    ));
+                };
+            },
+        );
+    }
 }
 
 pub(crate) fn player_enemy_shock_system(

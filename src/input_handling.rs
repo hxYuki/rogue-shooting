@@ -3,9 +3,9 @@ use bevy_cursor::CursorInfo;
 
 use crate::Weapon;
 
-use super::YAxisMove;
+use super::movements::YAxisMove;
 
-use super::XAxisMove;
+use super::movements::XAxisMove;
 
 use super::Player;
 

@@ -196,13 +196,13 @@ pub(crate) mod lane_shot {
         mut commands: Commands,
         mut query: Query<
             (Entity, &mut Bullet, &mut Transform),
-            (With<LaneShot>, Without<Movement>),
+            (With<LaneShot>, Without<movements::Movement>),
         >,
     ) {
         query.for_each_mut(|(entity, bullet, transform)| {
             commands.entity(entity).insert((
-                Movement::DirectionMove(transform.rotation.mul_vec3(Vec3::Y).truncate()),
-                Movable {
+                movements::Movement::DirectionMove(transform.rotation.mul_vec3(Vec3::Y).truncate()),
+                movements::Movable {
                     speed: bullet.speed,
                 },
             ));
@@ -248,7 +248,7 @@ pub mod explode_shot {
         mut commands: Commands,
         mut query: Query<
             (Entity, &mut Bullet, &mut Transform),
-            (With<ExplodeShot>, Without<Movement>),
+            (With<ExplodeShot>, Without<movements::Movement>),
         >,
     ) {
         query.for_each_mut(|(entity, bullet, transform)| {
@@ -303,7 +303,7 @@ pub mod splash_shot {
         mut commands: Commands,
         mut query: Query<
             (Entity, &WeaponRef, &mut Bullet, &mut Transform, &SplashShot),
-            Without<Movement>,
+            Without<movements::Movement>,
         >,
         mut weapons: Query<(&mut WeaponEntropyComponent, &Weapon)>,
     ) {
@@ -313,8 +313,8 @@ pub mod splash_shot {
 
             let dir = transform.rotation * Quat::from_rotation_z(angle) * Vec3::Y;
             commands.entity(entity).insert((
-                Movement::DirectionMove(dir.truncate()),
-                Movable {
+                movements::Movement::DirectionMove(dir.truncate()),
+                movements::Movable {
                     speed: bullet.speed,
                 },
             ));

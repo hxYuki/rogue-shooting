@@ -21,20 +21,26 @@ pub fn move_targeting_system(
         MoveTargetingType::Chase => {
             commands
                 .entity(entity)
-                .insert(Movement::PointMove(player_transform.translation.truncate()));
+                .insert(movements::Movement::PointMove(
+                    player_transform.translation.truncate(),
+                ));
         }
         MoveTargetingType::Follow => {
             if transform.translation.distance(player_transform.translation) > 100. {
                 commands
                     .entity(entity)
-                    .insert(Movement::PointMove(player_transform.translation.truncate()));
+                    .insert(movements::Movement::PointMove(
+                        player_transform.translation.truncate(),
+                    ));
             } else {
-                commands.entity(entity).remove::<Movement>();
+                commands.entity(entity).remove::<movements::Movement>();
             }
         }
         MoveTargetingType::Outflank => {
             let target = player_transform.translation.truncate() + player_speed.0.normalize() * 1.5;
-            commands.entity(entity).insert(Movement::PointMove(target));
+            commands
+                .entity(entity)
+                .insert(movements::Movement::PointMove(target));
         }
     });
 }
