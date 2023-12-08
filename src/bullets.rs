@@ -25,7 +25,7 @@ pub(crate) struct BulletSpawnEvent {
 #[derive(Component)]
 pub(crate) struct Shooter(Entity);
 #[derive(Component)]
-pub(crate) struct InitPosition(Transform);
+pub(crate) struct InitPosition(pub Transform);
 
 #[derive(Component)]
 pub(crate) struct BulletGeneration(pub usize);

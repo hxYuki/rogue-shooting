@@ -15,7 +15,9 @@ use bevy_cursor::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rand::prelude::*;
 use bevy_xpbd_2d::prelude::*;
+use enemies::{normal_enemy, EnemyType};
 use enemy_targeting::{AimTargetingType, MoveTargetingType};
+use levels::*;
 use rand::prelude::*;
 
 pub(crate) mod bullets;
@@ -103,6 +105,11 @@ fn main() {
         )
         .add_systems(
             Update,
+            (levels::level_enemy_spawner, levels::level_boss_spawner),
+        )
+        .add_systems(Update, (enemies::normal_enemy::normal_enemy_initializer))
+        .add_systems(
+            Update,
             (
                 enemy_targeting::move_targeting_system,
                 enemy_targeting::aim_targeting_system,
@@ -148,7 +155,7 @@ enum Layer {
     EnemyBullet,
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy<WyRand>>) {
     commands
         .spawn((
             SpriteBundle {
@@ -181,7 +188,7 @@ fn spawn_player(mut commands: Commands) {
                             endurance: INFINITY,
                             speed: 1000.,
                             cooldown: 0.,
-                            damage: 10. / constants::GAME_FIXED_TICK_PER_SECOND as f32,
+                            damage: 60. / constants::GAME_FIXED_TICK_PER_SECOND as f32,
                             hit_limit: INFINITY,
                         },
                         Box::new(bullets::lazer_shot::LazerShot {
@@ -224,34 +231,277 @@ fn spawn_player(mut commands: Commands) {
             ));
         });
 
-    spawn_enemy(commands);
+    spawn_level(commands, global_entropy);
 }
 
-fn spawn_enemy(mut commands: Commands) {
+fn spawn_level(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy<WyRand>>) {
     commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgb(1.0, 1.0, 1.0),
-                rect: Some(Rect {
-                    min: Vec2::new(0.0, 0.0),
-                    max: Vec2::new(32.0, 32.0),
-                }),
-                ..Default::default()
-            },
-            transform: Transform::from_translation(Vec3::new(0., 100., 0.)),
-            ..Default::default()
+        LevelInfo {
+            id: 0,
+            enemy_to_spawn: vec![EnemyDescriptor {
+                enemy: normal_enemy::NormalEnemy::TEXT.into(),
+                class: EnemyClass::Normal(1),
+                amount: 10,
+            }],
+            is_spawning: true,
+            wave_enemy_limit: 3,
         },
-        Life(100),
-        Enemy,
-        Character,
-        Aims(Vec2::ZERO),
-        Movable { speed: 150.0 },
-        Collider::ball(16.),
-        // Sensor,
-        CollisionLayers::new([Layer::Enemy], [Layer::Player, Layer::PlayerBullet]),
-        AimTargetingType::AimCurrent,
-        MoveTargetingType::Chase,
+        NextSpawnTimer(Timer::from_seconds(1., TimerMode::Repeating)),
+        global_entropy.fork_rng(),
     ));
+    // commands.spawn((
+    //     SpriteBundle {
+    //         sprite: Sprite {
+    //             color: Color::rgb(1.0, 1.0, 1.0),
+    //             rect: Some(Rect {
+    //                 min: Vec2::new(0.0, 0.0),
+    //                 max: Vec2::new(32.0, 32.0),
+    //             }),
+    //             ..Default::default()
+    //         },
+    //         transform: Transform::from_translation(Vec3::new(0., 100., 0.)),
+    //         ..Default::default()
+    //     },
+    //     Life(100),
+    //     Enemy,
+    //     Character,
+    //     Aims(Vec2::ZERO),
+    //     Movable { speed: 150.0 },
+    //     Collider::ball(16.),
+    //     // Sensor,
+    //     CollisionLayers::new([Layer::Enemy], [Layer::Player, Layer::PlayerBullet]),
+    //     AimTargetingType::AimCurrent,
+    //     MoveTargetingType::Chase,
+    // ));
+}
+
+mod enemies {
+    use bevy::ecs::query::With;
+
+    use crate::*;
+
+    pub trait EnemyType: Component {
+        const TEXT: &'static str;
+
+        fn to_component(self) -> impl Component;
+    }
+
+    pub fn type_dispatch(str: &str) -> impl EnemyType {
+        match str {
+            normal_enemy::NormalEnemy::TEXT => normal_enemy::NormalEnemy,
+            _ => panic!("unknown enemy type"),
+        }
+    }
+
+    pub mod normal_enemy {
+        use super::*;
+
+        #[derive(Component)]
+        pub struct NormalEnemy;
+
+        impl EnemyType for NormalEnemy {
+            const TEXT: &'static str = "normal";
+            fn to_component(self) -> impl Component {
+                self
+            }
+        }
+
+        pub fn normal_enemy_initializer(
+            mut commands: Commands,
+            to_initialize: Query<(Entity, &InitPosition), (With<Character>, With<NormalEnemy>)>,
+        ) {
+            to_initialize.for_each(|(entity, initial_pos)| {
+                commands
+                    .entity(entity)
+                    .insert((
+                        SpriteBundle {
+                            sprite: Sprite {
+                                color: Color::ORANGE_RED,
+                                rect: Some(Rect {
+                                    min: Vec2::new(0.0, 0.0),
+                                    max: Vec2::new(32.0, 32.0),
+                                }),
+                                ..Default::default()
+                            },
+                            transform: initial_pos.0,
+                            ..Default::default()
+                        },
+                        Life(100),
+                        Aims(Vec2::ZERO),
+                        Movable { speed: 150.0 },
+                        Collider::ball(16.),
+                        // Sensor,
+                        CollisionLayers::new([Layer::Enemy], [Layer::Player, Layer::PlayerBullet]),
+                        AimTargetingType::AimCurrent,
+                        MoveTargetingType::Chase,
+                    ))
+                    .remove::<InitPosition>();
+            });
+        }
+    }
+}
+
+mod levels {
+    use super::*;
+    use bevy::prelude::*;
+    use enemies::EnemyType;
+    use std::{
+        hash::{Hash, Hasher},
+        time::Duration,
+    };
+
+    #[derive(Component)]
+    pub struct LevelInfo {
+        pub id: i32,
+        pub is_spawning: bool,
+        pub enemy_to_spawn: Vec<EnemyDescriptor>,
+        pub wave_enemy_limit: usize,
+    }
+
+    #[derive(Component)]
+    pub struct CurrentWave(usize);
+
+    #[derive(Component)]
+    pub struct NextSpawnTimer(pub Timer);
+
+    #[derive(Component)]
+    pub struct SpawnedCounter(HashMap<EnemyDescriptor, u32>);
+
+    #[derive(PartialEq)]
+    pub enum EnemyClass {
+        /// Normal enemies will be spawned with pace according to existing enemies
+        /// the parameter implies its strength
+        Normal(u32),
+        /// Bosses in level will be spawned together at the end
+        Boss,
+    }
+    #[derive(Component)]
+    pub struct BossClass;
+    #[derive(Component)]
+    pub struct NormalClass(u32);
+
+    pub struct EnemyDescriptor {
+        pub enemy: String,
+        pub class: EnemyClass,
+        pub amount: u32,
+    }
+    impl Hash for EnemyDescriptor {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.enemy.hash(state);
+        }
+    }
+    #[derive(Component)]
+    pub struct LevelRef(Entity);
+
+    const LEVEL_TIME_BASE: f32 = 60.;
+    pub fn level_enemy_spawner(
+        mut commands: Commands,
+        mut levels: Query<(
+            Entity,
+            &mut LevelInfo,
+            &mut NextSpawnTimer,
+            &mut EntropyComponent<WyRand>,
+        )>,
+        level_enemies: Query<(&LevelRef), With<Enemy>>,
+        time: Res<Time>,
+    ) {
+        levels.for_each_mut(|(entity, mut level, mut spawn_timer, mut entropy)| {
+            // FIXME: remove this check, is_spawning shuould be a component
+            if !level.is_spawning {
+                return;
+            }
+            if spawn_timer.0.tick(time.delta()).just_finished() {
+                // let remains = counter.0.iter().map(|e| e.1).sum::<u32>() as i64;
+                let remains = level
+                    .enemy_to_spawn
+                    .iter()
+                    .filter(|e| e.class != EnemyClass::Boss)
+                    .map(|e| e.amount)
+                    .sum::<u32>() as i64;
+                if remains == 0 {
+                    return;
+                }
+
+                let mut next = entropy.gen_range(0..remains);
+                for desc in level.enemy_to_spawn.iter_mut() {
+                    next -= desc.amount as i64;
+                    if next < 0 {
+                        desc.amount -= 1;
+
+                        let EnemyClass::Normal(class) = desc.class else {
+                            unreachable!()
+                        };
+                        // TODO: scene range
+                        let rand_transform = Transform::from_xyz(
+                            entropy.gen_range(-300. ..=300.),
+                            entropy.gen_range(-300. ..=300.),
+                            0.,
+                        );
+
+                        commands.spawn((
+                            enemies::type_dispatch(&desc.enemy).to_component(),
+                            NormalClass(class),
+                            Enemy,
+                            Character,
+                            InitPosition(rand_transform),
+                            LevelRef(entity),
+                        ));
+                        break;
+                    }
+                }
+            }
+
+            let level_enemy_count = level_enemies
+                .iter()
+                .filter(|LevelRef(level_et)| *level_et == entity)
+                .count();
+            match level_enemy_count {
+                c if c < level.wave_enemy_limit => {
+                    if spawn_timer.0.duration() != Duration::from_secs_f32(0.6) {
+                        spawn_timer.0.reset();
+                        spawn_timer.0.set_duration(Duration::from_secs_f32(0.6));
+                    }
+                }
+                c if c >= level.wave_enemy_limit && c < 2 * level.wave_enemy_limit => {
+                    if spawn_timer.0.duration() != Duration::from_secs_f32(2.) {
+                        spawn_timer.0.reset();
+                        spawn_timer.0.set_duration(Duration::from_secs_f32(2.));
+                    }
+                }
+                _ => {
+                    if spawn_timer.0.duration() != Duration::from_secs_f32(6.) {
+                        spawn_timer.0.reset();
+                        spawn_timer.0.set_duration(Duration::from_secs_f32(6.));
+                    }
+                }
+            };
+        });
+    }
+
+    #[derive(Component)]
+    pub struct BossSpawnTimer(Timer);
+    pub fn level_boss_spawner(
+        mut commands: Commands,
+        mut levels: Query<(Entity, &mut LevelInfo, Option<&mut BossSpawnTimer>)>,
+        time: Res<Time>,
+    ) {
+        levels.for_each_mut(|(entity, mut level, boss_timer)| {
+            if let Some(mut boss_timer) = boss_timer {
+                if boss_timer.0.tick(time.delta()).just_finished() {
+                    // TODO: spawn all bosses
+                }
+            } else if level
+                .enemy_to_spawn
+                .iter()
+                .any(|e| e.class == EnemyClass::Boss)
+                && level.enemy_to_spawn.iter().map(|e| e.amount).sum::<u32>() == 0
+            {
+                commands
+                    .entity(entity)
+                    .insert(BossSpawnTimer(Timer::from_seconds(10., TimerMode::Once)));
+            }
+        });
+    }
 }
 
 type WeaponEntropyComponent = EntropyComponent<WyRand>;
