@@ -23,7 +23,7 @@ use rand::prelude::*;
 pub(crate) mod bullets;
 mod constants;
 mod enemy_targeting;
-mod forced_move;
+mod forced_moving;
 mod input_handling;
 use bullets::*;
 use input_handling::KeyboardControlled;
@@ -68,8 +68,8 @@ fn main() {
                 movements::move_system.before(bullet_before_despawn),
                 aim_system,
                 player_enemy_shock_system,
-                forced_move::forced_move_system,
-                (forced_move::shock_system, forced_move::shock_timer_system).chain(),
+                forced_moving::forced_move_system,
+                (forced_moving::shock_system, forced_moving::shock_timer_system).chain(),
             ),
         )
         .add_systems(Update, (cooldown_system, shoot_system).chain())
@@ -354,7 +354,7 @@ mod movements {
                 Option<&mut LinearVelocity>,
                 Option<&RigidBody>,
             ),
-            Without<forced_move::ForcedMove>,
+            Without<forced_moving::ForcedMove>,
         >,
         mut commands: Commands,
     ) {
@@ -434,7 +434,7 @@ pub(crate) fn player_enemy_shock_system(
         let self_translation = transform.translation;
         let target_translation = target.2.translation;
         let direction = (self_translation - target_translation).normalize();
-        commands.entity(entity).insert(forced_move::Shocked {
+        commands.entity(entity).insert(forced_moving::Shocked {
             impact: 1.,
             direction: direction.truncate(),
         });
