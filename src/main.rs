@@ -1,6 +1,6 @@
 #![feature(trait_upcasting)]
 #![feature(trivial_bounds)]
-use std::{f32::INFINITY, fs::File, io::Write};
+use std::{f32::INFINITY, fs::File, io::Write, time::Duration};
 
 use bevy::{
     prelude::*,
@@ -8,6 +8,7 @@ use bevy::{
         settings::{Backends, RenderCreation, WgpuSettings},
         RenderPlugin,
     },
+    time::common_conditions::on_timer,
     utils::HashMap,
 };
 
@@ -18,6 +19,7 @@ use bevy_xpbd_2d::prelude::*;
 use enemies::{normal_enemy, EnemyType};
 use enemy_targeting::{AimTargetingType, MoveTargetingType};
 use levels::*;
+use movements::Movement;
 use rand::prelude::*;
 
 pub(crate) mod bullets;
@@ -43,6 +45,10 @@ fn main() {
             CursorInfoPlugin,
         ))
         .insert_resource(Gravity(Vec2::ZERO))
+        // register for base system components
+        .register_type::<Aims>()
+        .register_type::<Movement>()
+        // resister for Bullet entity components
         .register_type::<bullets::lane_shot::LaneShot>()
         .register_type::<bullets::explode_shot::ExplodeShot>()
         .register_type::<bullets::splash_shot::SplashShot>()
@@ -69,7 +75,11 @@ fn main() {
                 aim_system,
                 player_enemy_shock_system,
                 forced_moving::forced_move_system,
-                (forced_moving::shock_system, forced_moving::shock_timer_system).chain(),
+                (
+                    forced_moving::shock_system,
+                    forced_moving::shock_timer_system,
+                )
+                    .chain(),
             ),
         )
         .add_systems(Update, (cooldown_system, shoot_system).chain())
@@ -113,6 +123,7 @@ fn main() {
             (
                 enemy_targeting::move_targeting_system,
                 enemy_targeting::aim_targeting_system,
+                enemy_targeting::enemy_search_nearist_player,
             )
                 .before(life_dies_system),
         )
@@ -329,7 +340,7 @@ mod movements {
         Down,
     }
 
-    #[derive(Component)]
+    #[derive(Component, Reflect)]
     pub(crate) enum Movement {
         // XYAxisMove(Option<XAxisMove>, Option<YAxisMove>),
         DirectionMove(Vec2),
