@@ -20,6 +20,7 @@ pub(crate) struct BulletSpawnEvent {
     pub with: Entity,
     pub bullet: Bullet,
     pub bullet_type: Box<dyn BulletType>,
+    pub bullet_extras: Vec<Box<dyn BulletExtra>>,
     pub generation: usize,
 }
 #[derive(Component)]
@@ -62,6 +63,9 @@ pub(crate) fn bullet_spawner(
                 HitCount::default(),
             ));
             bullet_ec.insert_reflect(event.bullet_type.clone());
+            for extra in event.bullet_extras.iter() {
+                bullet_ec.insert_reflect(extra.clone());
+            }
             if is_player_shoot {
                 bullet_ec.insert(Player).insert(CollisionLayers::new(
                     [Layer::PlayerBullet],
@@ -96,8 +100,9 @@ pub(crate) fn bullet_succeed(
                 shooter: event.transform,
                 by: shooter.get(),
                 with: event.weapon,
-                bullet: next_bullet.0,
-                bullet_type: next_bullet.1.clone(),
+                bullet: next_bullet.bullet,
+                bullet_type: next_bullet.bullet_type.clone(),
+                bullet_extras: next_bullet.bullet_extras.clone(),
                 generation: event.generation,
             });
         };
@@ -171,6 +176,9 @@ pub(crate) fn bullet_endurance(mut commands: Commands, query: Query<(Entity, &Bu
 
 pub(crate) trait BulletType: Reflect + DynClone {}
 dyn_clone::clone_trait_object!(BulletType);
+
+pub(crate) trait BulletExtra: Reflect + DynClone {}
+dyn_clone::clone_trait_object!(BulletExtra);
 
 type BoxedBulletType = Box<dyn BulletType>;
 
@@ -251,6 +259,7 @@ pub mod explode_shot {
             (With<ExplodeShot>, Without<movements::Movement>),
         >,
     ) {
+        // TODO: animate explosion
         query.for_each_mut(|(entity, bullet, transform)| {
             // commands.entity(entity).insert((
             //     // Movement::DirectionMove(transform.rotation.mul_vec3(Vec3::Y).truncate()),
@@ -413,6 +422,28 @@ pub mod lazer_shot {
                 }
             },
         );
+    }
+}
+
+pub mod shot_auto_targeting {
+    use super::*;
+    // TODO: AUTO TARGETING should work along with original shot, not creating new shot
+
+    #[derive(Component, Reflect, Default, Clone, Copy)]
+    pub struct AutoTargeting {
+        search_range: f32,
+    }
+
+    pub fn lazer_auto_targeting_shot_move() {
+        // TODO
+    }
+
+    pub fn auto_targeting_bullet(
+        mut commands: Commands,
+        query: Query<(Entity, &Bullet, &InitPosition, &AutoTargeting)>,
+        spatial_query: SpatialQuery,
+    ) {
+        query.for_each(|(entity, bullet, InitPosition(position), targeting_param)| {});
     }
 }
 

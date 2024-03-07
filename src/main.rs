@@ -193,8 +193,8 @@ fn spawn_player(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy
             cb.spawn((
                 Weapon {
                     accelerate: 1000.,
-                    loads: vec![(
-                        Bullet {
+                    loads: vec![BulletLoader {
+                        bullet: Bullet {
                             life_time: 0.03,
                             endurance: INFINITY,
                             speed: 1000.,
@@ -202,11 +202,12 @@ fn spawn_player(mut commands: Commands, mut global_entropy: ResMut<GlobalEntropy
                             damage: 60. / constants::GAME_FIXED_TICK_PER_SECOND as f32,
                             hit_limit: INFINITY,
                         },
-                        Box::new(bullets::lazer_shot::LazerShot {
+                        bullet_type: Box::new(bullets::lazer_shot::LazerShot {
                             width: 4.,
                             length: 900.,
                         }),
-                    )],
+                        bullet_extras: vec![],
+                    }],
                 },
                 // Weapon {
                 //     accelerate: 1000.,
@@ -309,7 +310,7 @@ struct IsShooting;
 #[derive(Component)]
 struct Weapon {
     accelerate: f32,
-    loads: Vec<(Bullet, Box<dyn BulletType>)>,
+    loads: Vec<BulletLoader>,
 }
 impl Default for Weapon {
     fn default() -> Self {
@@ -318,6 +319,12 @@ impl Default for Weapon {
             loads: vec![],
         }
     }
+}
+
+struct BulletLoader {
+    bullet: Bullet,
+    bullet_type: Box<dyn BulletType>,
+    bullet_extras: Vec<Box<dyn BulletExtra>>,
 }
 
 #[derive(Component)]
@@ -467,7 +474,12 @@ fn shoot_system(
     mut writer: EventWriter<bullets::BulletSpawnEvent>,
 ) {
     weapons.for_each(|(entity, weapon, owner)| {
-        if let Some((bullet, bullet_type)) = weapon.loads.first() {
+        if let Some(BulletLoader {
+            bullet,
+            bullet_type,
+            bullet_extras,
+        }) = weapon.loads.first()
+        {
             let owner_transform = weapon_holder.get(owner.get()).unwrap().1;
             writer.send(bullets::BulletSpawnEvent {
                 shooter: *owner_transform,
@@ -475,6 +487,7 @@ fn shoot_system(
                 with: entity,
                 bullet: *bullet,
                 bullet_type: bullet_type.clone(),
+                bullet_extras: bullet_extras.clone(),
                 generation: 0,
             });
 
